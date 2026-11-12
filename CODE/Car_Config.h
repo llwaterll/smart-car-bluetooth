@@ -29,7 +29,17 @@
 #define CAR_ENCODER_CPR         (11.0f * 4.0f * 10.0f)
 #define CAR_RPM_LIMIT           180.0f
 #define CAR_PWM_LIMIT           3500.0f
-#define CAR_RAMP_RPM_PER_TICK    1.0f
+#define CAR_ACCEL_LIMIT_RPM_S   200.0f
+#define CAR_JERK_LIMIT_RPM_S2    800.0f
+#define CAR_MIN_CONTROL_US      1000U
+#define CAR_MAX_CONTROL_US      15000U
+#define CAR_SPEED_FILTER_TAU_S  0.005f
+/* PWM-count feedforward coefficients require identification on this chassis. */
+#define CAR_FF_KS               0.0f
+#define CAR_FF_KV               0.0f
+#define CAR_FF_KA               0.0f
+#define CAR_PID_D_TAU_S         0.020f
+#define CAR_PID_SETPOINT_WEIGHT 1.0f
 #define CAR_LINK_TIMEOUT_MS     500U
 #define CAR_FRAME_TIMEOUT_MS    100U
 #define CAR_STALL_TIMEOUT_MS    1500U

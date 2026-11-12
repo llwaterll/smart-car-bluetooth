@@ -21,10 +21,32 @@ static NEUQ_FIFO_t vision_fifo;
 static uint8_t vision_buffer[512];
 static volatile uint8_t vision_rx_fault;
 static uint16_t previous[2];
+static TIM_HandleTypeDef control_clock;
+static uint32_t last_control_us;
+static uint8_t control_clock_ready;
 static uint8_t reverse[2], waiting[2];
 static const PWM_Ports_ENUM pwm[2]={CAR_LEFT_PWM,CAR_RIGHT_PWM};
 static const GPIO_Ports_ENUM dir_pin[2]={CAR_LEFT_DIR,CAR_RIGHT_DIR};
 static const uint8_t forward_high[2]={CAR_LEFT_FORWARD_HIGH,CAR_RIGHT_FORWARD_HIGH};
+
+/* TIM5 is reserved as a free-running 1MHz clock; no encoder pins are assigned. */
+static uint8_t init_control_clock(void)
+{
+    RCC_ClkInitTypeDef clocks;
+    uint32_t latency,timer_hz;
+    HAL_RCC_GetClockConfig(&clocks,&latency);
+    timer_hz=HAL_RCC_GetPCLK1Freq();
+    if(clocks.APB1CLKDivider!=RCC_HCLK_DIV1)timer_hz*=2U;
+    if(timer_hz<1000000U || timer_hz%1000000U)return 0;
+    __HAL_RCC_TIM5_CLK_ENABLE();
+    control_clock.Instance=TIM5;
+    control_clock.Init.Prescaler=timer_hz/1000000U-1U;
+    control_clock.Init.Period=0xffffffffU;
+    control_clock.Init.CounterMode=TIM_COUNTERMODE_UP;
+    control_clock.Init.ClockDivision=TIM_CLOCKDIVISION_DIV1;
+    control_clock.Init.AutoReloadPreload=TIM_AUTORELOAD_PRELOAD_DISABLE;
+    return HAL_TIM_Base_Init(&control_clock)==HAL_OK && HAL_TIM_Base_Start(&control_clock)==HAL_OK;
+}
 
 static void output(unsigned i, float value)
 {
@@ -81,10 +103,13 @@ void Car_PIT_Handler(void)
     static unsigned telemetry;
     unsigned n;
     uint8_t byte;
+    uint32_t sample_us=control_clock_ready ? __HAL_TIM_GET_COUNTER(&control_clock) : 0;
+    uint32_t dt_us=sample_us-last_control_us;
     int32_t l=delta_count(0,&Encoder_TIM4_Handle);
     int32_t r=delta_count(1,&Encoder_TIM3_Handle);
     if(CAR_LEFT_ENCODER_INVERT) l=-l;
     if(CAR_RIGHT_ENCODER_INVERT) r=-r;
+    last_control_us=sample_us;
     if(rx_fault) {
         Car_Fault(&car,CAR_RX_FAULT);
         while(NEUQ_FIFO_read_byte(&rx_fifo,&byte)==NEUQ_FIFO_OK) {}
@@ -92,7 +117,7 @@ void Car_PIT_Handler(void)
     } else {
         for(n=0;n<32 && NEUQ_FIFO_read_byte(&rx_fifo,&byte)==NEUQ_FIFO_OK;n++) Car_FeedByte(&car,byte);
     }
-    Car_Tick(&car,l,r);
+    Car_TickDt(&car,l,r,dt_us);
     output(0,car.output[0]); output(1,car.output[1]);
     /* Bounded work after the motor update; the parser cannot write motor state. */
     if(vision_rx_fault) {
@@ -138,6 +163,8 @@ void Car_Main(void)
     NEUQ_Uart_Enable_RX_Interrupt((UART_DEV_ENUM)CAR_UART_INDEX,3);
     NEUQ_Uart_init((UART_DEV_ENUM)CAR_VISION_UART_INDEX,CAR_VISION_UART_BAUD);
     NEUQ_Uart_Enable_RX_Interrupt((UART_DEV_ENUM)CAR_VISION_UART_INDEX,4);
+    control_clock_ready=init_control_clock();
+    last_control_us=control_clock_ready ? __HAL_TIM_GET_COUNTER(&control_clock) : 0;
     NEUQ_PIT_init_ms(PIT_CH1,CAR_PERIOD_MS);
     while(1) My_Vofa_poll();
 }

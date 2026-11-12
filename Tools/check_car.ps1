@@ -7,10 +7,14 @@ Push-Location -LiteralPath $carRoot
 try {
     python -m unittest discover -s Tests -p 'test_*.py' -v
     if ($LASTEXITCODE -ne 0) { throw 'Python tests failed' }
-    clang -std=c99 -Wall -Wextra -Werror -I CODE Tests/test_car_core.c CODE/Car_Core.c CODE/Car_PID.c -o build/test_car_core.exe
+    clang -std=c99 -Wall -Wextra -Werror -I CODE Tests/test_car_core.c CODE/Car_Core.c CODE/Car_PID.c CODE/Car_Reference.c -o build/test_car_core.exe
     if ($LASTEXITCODE -ne 0) { throw 'Core test compilation failed' }
     & (Join-Path $carOutput 'test_car_core.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed' }
+    clang -std=c99 -Wall -Wextra -Werror -I CODE Tests/test_car_pid.c CODE/Car_PID.c CODE/Car_Reference.c -o build/test_car_pid.exe
+    if ($LASTEXITCODE -ne 0) { throw 'PID/reference test compilation failed' }
+    & (Join-Path $carOutput 'test_car_pid.exe')
+    if ($LASTEXITCODE -ne 0) { throw 'PID/reference tests failed' }
     clang -std=c99 -Wall -Wextra -Werror -I CODE Tests/test_car_vision.c CODE/Car_Vision.c -o build/test_car_vision.exe
     if ($LASTEXITCODE -ne 0) { throw 'Vision test compilation failed' }
     & (Join-Path $carOutput 'test_car_vision.exe')

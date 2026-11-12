@@ -1035,6 +1035,11 @@
           <GroupName>CODE_Bluetooth_Car</GroupName>
           <Files>
             <File>
+              <FileName>Car_Reference.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../CODE/Car_Reference.c</FilePath>
+            </File>
+            <File>
               <FileName>Car_Vision.c</FileName>
               <FileType>1</FileType>
               <FilePath>../CODE/Car_Vision.c</FilePath>

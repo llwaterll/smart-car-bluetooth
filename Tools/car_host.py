@@ -16,7 +16,8 @@ TAIL = bytes.fromhex('00 00 80 7f')
 CHANNELS = ['state', 'fault', 'left_ref', 'left_rpm', 'right_ref', 'right_rpm',
             'left_pwm', 'right_pwm', 'result', 'frames',
             'left_kp', 'left_ki', 'left_kd', 'right_kp', 'right_ki', 'right_kd']
-FAULTS = {0: '正常', 1: '通信超时', 2: '堵转/编码器无反馈', 3: '反馈方向异常', 4: '串口错误/溢出'}
+FAULTS = {0: '正常', 1: '通信超时', 2: '堵转/编码器无反馈', 3: '反馈方向异常', 4: '串口错误/溢出',
+          5: '控制周期异常', 6: '控制器参数/数值异常'}
 
 
 def crc8(data):

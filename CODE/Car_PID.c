@@ -1,72 +1,64 @@
-/*********************************************************************************************************************
-* 文件名称          Car_PID
-* 功能说明          双轮车：速度环位置式 PID（实现），说明见 Car_PID.h
-*
-* 修改记录
-* 日期              备注
-* 2026-09-27        first version
-********************************************************************************************************************/
 #include "Car_PID.h"
+#include <float.h>
+#include <string.h>
 
-// 把 x 限制在 [-limit, +limit] 之间
-static float limit_abs(float x, float limit)
+static uint8_t number(float x) { return x<=FLT_MAX && x>=-FLT_MAX; }
+static float clip(float x,float limit) { return x>limit ? limit : (x<-limit ? -limit : x); }
+void Car_Pid_reset(Car_Pid_Struct *p)
 {
-    if (x > limit)  return limit;
-    if (x < -limit) return -limit;
-    return x;
+    p->integral=p->last_measure=p->derivative=0;
+    p->p_term=p->d_term=p->ff_term=p->last_output=0;
+    p->started=p->fault=p->saturated=0;
 }
-
-void Car_Pid_init(Car_Pid_Struct *pid, float kp, float ki, float kd, float output_limit)
+uint8_t Car_Pid_init(Car_Pid_Struct *p,float kp,float ki,float kd,float limit)
 {
-    pid->kp           = kp;
-    pid->ki           = ki;
-    pid->kd           = kd;
-    pid->output_limit = output_limit;
-    Car_Pid_reset(pid);
+    memset(p,0,sizeof(*p));
+    if(!number(kp)||!number(ki)||!number(kd)||!number(limit)||
+       kp<0||ki<0||kd<0||kp>655.35f||ki>655.35f||kd>655.35f||limit<=0||limit>10000) {
+        p->fault=1;return 0;
+    }
+    p->kp=kp;p->ki=ki;p->kd=kd;p->output_limit=p->integral_limit=limit;
+    p->beta=1;p->derivative_tau_s=0.02f;
+    return 1;
 }
-
-void Car_Pid_reset(Car_Pid_Struct *pid)
+uint8_t Car_Pid_configure(Car_Pid_Struct *p,float beta,float tau,float fraction,
+                         float ks,float kv,float ka)
 {
-    pid->integral     = 0.0f;
-    pid->last_measure = 0.0f;
-    pid->started      = 0;
+    if(!number(beta)||!number(tau)||!number(fraction)||!number(ks)||!number(kv)||!number(ka)||
+       beta<0||beta>1||tau<0||tau>1||fraction<=0||fraction>1||ks<0||kv<0||ka<0||
+       ks>p->output_limit||kv>10000||ka>10000||p->output_limit<=0)return 0;
+    p->beta=beta;p->derivative_tau_s=tau;p->integral_limit=fraction*p->output_limit;
+    p->ks=ks;p->kv=kv;p->ka=ka;Car_Pid_reset(p);return 1;
 }
-
-float Car_Pid_update(Car_Pid_Struct *pid, float target, float measure)
+float Car_Pid_update_dt(Car_Pid_Struct *p,float target,float measure,float acceleration,float dt)
 {
-    float error = target - measure;
-    float p = pid->kp * error;
-    float d = 0.0f;
-    float i_new;
-
-    // 微分：用实际值的变化量（第一次调用时还没有上一次的值，先不算）
-    if (pid->started) {
-        d = -pid->kd * (measure - pid->last_measure);
-    }
-    pid->last_measure = measure;
-    pid->started      = 1;
-
-    // 积分：先算出"这一拍如果照常累加"的积分值（积分本身也不能超过输出限幅）
-    i_new = limit_abs(pid->integral + pid->ki * error, pid->output_limit);
-
-    // 抗积分饱和（条件积分）：
-    // 照常累加会让输出超过正限幅、而且误差为正（还想继续加大输出）时，积分最多只加到"输出刚好等于限幅"；
-    // 负方向同理。其余情况积分照常更新。误差一旦反向，积分马上就能正常减小，不会"卡住"
-    if (p + i_new + d > pid->output_limit && error > 0.0f) {
-        float room = pid->output_limit - (p + d);           // 让输出刚好等于正限幅的积分值
-        if (room > pid->integral) {
-            pid->integral = room;
-        }
-    }
-    else if (p + i_new + d < -pid->output_limit && error < 0.0f) {
-        float room = -pid->output_limit - (p + d);          // 让输出刚好等于负限幅的积分值
-        if (room < pid->integral) {
-            pid->integral = room;
-        }
-    }
-    else {
-        pid->integral = i_new;
-    }
-
-    return limit_abs(p + pid->integral + d, pid->output_limit);
+    float error,raw_d=0,d_alpha,base,candidate,output;
+    if(p->fault)return 0;
+    if(!number(target)||!number(measure)||!number(acceleration)||!number(dt)||dt<0.0001f||dt>0.1f||
+       !number(p->kp)||!number(p->ki)||!number(p->kd)||!number(p->integral)||
+       !number(p->output_limit)||p->output_limit<=0||p->output_limit>10000)goto invalid;
+    error=target-measure;
+    if(p->started)raw_d=(measure-p->last_measure)/dt;
+    p->last_measure=measure;p->started=1;
+    d_alpha=dt/(p->derivative_tau_s+dt);
+    p->derivative+=d_alpha*(raw_d-p->derivative);
+    p->p_term=p->kp*(p->beta*target-measure);
+    p->d_term=-p->kd*0.005f*p->derivative;
+    p->ff_term=p->kv*target+p->ka*acceleration;
+    if(target>1)p->ff_term+=p->ks;else if(target<-1)p->ff_term-=p->ks;
+    base=p->p_term+p->d_term+p->ff_term;
+    candidate=clip(p->integral+p->ki*error*(dt/0.005f),p->integral_limit);
+    if(!number(base)||!number(candidate))goto invalid;
+    output=base+candidate;
+    /* Conditional integration allows unwinding, blocks growth into saturation. */
+    if(!((output>p->output_limit && error>0)||(output<-p->output_limit && error<0)))
+        p->integral=candidate;
+    output=base+p->integral;
+    if(!number(output))goto invalid;
+    p->saturated=(output>p->output_limit || output<-p->output_limit);
+    p->last_output=clip(output,p->output_limit);return p->last_output;
+invalid:
+    p->fault=1;p->last_output=0;return 0;
 }
+float Car_Pid_update(Car_Pid_Struct *p,float target,float measure)
+{ return Car_Pid_update_dt(p,target,measure,0,0.005f); }

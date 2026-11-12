@@ -29,7 +29,7 @@ int main(void)
     wheels(&c,80,80); assert(c.target[0]==0 && c.result==1);
     command(&c,1,0,0); wheels(&c,300,-300);
     assert(c.target[0]==180 && c.target[1]==-180);
-    Car_Tick(&c,0,0); assert(c.reference[0]==1 && c.reference[1]==-1);
+    Car_Tick(&c,0,0); assert(c.reference[0]>0 && c.reference[0]<=1 && c.reference[1]==-c.reference[0]);
     ticks(&c,99,0,0); assert(c.state==CAR_FAULT && c.fault==CAR_LINK_FAULT);
     assert(c.output[0]==0 && c.output[1]==0);
     command(&c,5,0,0); command(&c,1,0,0); assert(c.state==CAR_FAULT);
@@ -63,6 +63,15 @@ int main(void)
         Car_Tick(&c,0,0);
     } }
     assert(c.state==CAR_FAULT && c.fault==CAR_LINK_FAULT);
+    command(&c,2,0,0); command(&c,1,0,0); wheels(&c,80,80);
+    Car_TickDt(&c,0,0,20000);
+    assert(c.state==CAR_FAULT && c.fault==CAR_TIMING_FAULT && c.output[0]==0);
+    command(&c,2,0,0); command(&c,1,0,0); wheels(&c,80,80);
+    { int i; for(i=0;i<50;i++)Car_TickDt(&c,0,0,10000); }
+    assert(c.state==CAR_FAULT && c.fault==CAR_LINK_FAULT);
+    Car_Init(&c);
+    { int i; for(i=0;i<100;i++)Car_TickDt(&c,2,2,10000); }
+    assert(c.speed[0]>27.2f && c.speed[0]<27.4f); /* Two counts /10ms, not /5ms. */
     puts("car core: all checks passed");
     return 0;
 }
